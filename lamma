@@ -1,0 +1,47 @@
+class ResizeFeatureExtractor:
+    def __init__(self, n_rows: int, n_cols: int):
+        self.n_rows = n_rows
+        self.n_cols = n_cols
+        self.original_size = (28, 28)
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        n_samples = X.shape[0]
+        resized = np.zeros((n_samples, self.n_rows * self.n_cols), dtype=np.float32)
+
+        zoom_factors = (
+            self.n_rows / self.original_size[0],
+            self.n_cols / self.original_size[1],
+        )
+
+        for i in range(n_samples):
+            img = X[i].reshape(self.original_size)
+            img_resized = zoom(img, zoom_factors, order=3)  # bi-cubic interpolation
+            resized[i] = img_resized.flatten()
+
+        return resized
+
+def resize_solution(X_train, X_test, y_train):
+    # Обучаем
+    resize_feature_extractor = ResizeFeatureExtractor(5, 4)
+    resize_feature_extractor.fit(X_train)
+    train_features = resize_feature_extractor.transform(denoise_with_median(X_train))
+    test_features = resize_feature_extractor.transform(denoise_with_median(X_test))
+
+    model = LogisticRegression(multi_class="multinomial", solver="lbfgs", max_iter=5000)
+    model.fit(train_features, y_train)
+    y_pred = model.predict(test_features)
+    return y_pred
+
+# --- Main function for this solution ---
+def main(X, y):
+    """Для краткости пропустим часть с загрузкой данных"""
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.5, random_state=42
+    )
+    y_pred_resize = resize_solution(X_train, X_test, y_train)
+
+    acc_resize = accuracy_score(y_test, y_pred_resize)
+    print(f"Resize solution: {acc_resize:.4f}")
