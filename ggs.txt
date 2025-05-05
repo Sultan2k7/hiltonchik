@@ -1,0 +1,71 @@
+import pandas as pd
+import os
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+from itertools import product
+from tqdm import tqdm
+import warnings
+import numpy as np
+
+warnings.filterwarnings("ignore")
+
+work_dir = "../input/kazakhstan-ai-respa-take-home/"
+
+train = pd.read_csv(os.path.join(work_dir, 'train.csv'))
+train['submitted_date'] = pd.to_datetime(train['submitted_date'])
+
+
+split_date = train.submitted_date.max()
+
+last_week = train[(split_date - train.submitted_date ).dt.days < 7]
+last_week_papers = last_week.groupby('category').num_papers.sum()
+
+p, d, q = 1, 1, 2
+P, D, Q = 0, 1, 1
+s = 7
+
+records = []
+
+failed_categories = []
+
+start_year = '2010'
+
+for cat_name in tqdm(last_week_papers.index):
+    cat_df = train[(train['category'] == cat_name) & (train['submitted_date'] >= start_year)].sort_values('submitted_date')
+    ts = cat_df.set_index('submitted_date')['num_papers'].asfreq('D').fillna(0)
+
+    try:
+        model = SARIMAX(ts,
+                        order=(p, d, q),
+                        seasonal_order=(P, D, Q, s),
+                        enforce_stationarity=False,
+                        enforce_invertibility=False)
+        res = model.fit(disp=False)
+
+        forecast = res.forecast(steps=56)
+
+        for week_id in range(1, 9):
+            week_sum = forecast[(week_id - 1) * 7: week_id * 7].sum()
+            records.append({
+                'id': f"{cat_name}__{week_id}",
+                'num_papers': week_sum
+            })
+    except:
+        failed_categories.append(cat_name)
+        n_papers = last_week_papers[cat_name]
+        for week_id in range(1, 9):
+            records.append({
+                'id': f"{cat_name}__{week_id}",
+                'num_papers': n_papers
+            })
+if failed_categories:
+    print("\nЭти не сработали(((")
+    for cat in failed_categories:
+        print(f"- {cat}")
+else:
+    print("\nУспешно")
+
+submission = pd.DataFrame(records)
+submission.to_csv("sarima_submission_V5_2010.csv", index=False)
+
+sample_submission = pd.read_csv(os.path.join(work_dir, "sample_submission.csv"))
+print("ВСЕ ГУД", (sample_submission['id'] == submission['id']).all())
