@@ -1,0 +1,94 @@
+заметки
+import pandas as pd
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.decomposition import PCA
+from sklearn.model_selection import cross_val_predict, StratifiedKFold
+from sklearn.linear_model import LogisticRegression
+from xgboost import XGBClassifier
+from sklearn.ensemble import VotingClassifier
+from sklearn.metrics import classification_report
+
+# NLP инструменты
+import nltk
+from nltk import word_tokenize, pos_tag
+from nltk.corpus import wordnet
+from nltk.stem import WordNetLemmatizer
+
+# Функция для перевода POS в wordnet формат
+def get_wordnet_pos(treebank_tag):
+    if treebank_tag.startswith('J'):
+        return wordnet.ADJ
+    elif treebank_tag.startswith('V'):
+        return wordnet.VERB
+    elif treebank_tag.startswith('N'):
+        return wordnet.NOUN
+    elif treebank_tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN  # по умолчанию
+
+# Препроцессинг с лемматизацией
+lemmatizer = WordNetLemmatizer()
+
+def preprocess_text(text):
+    text = text.lower().strip()
+    text = re.sub(r'[^a-z\s]', '', text)
+    text = re.sub(r'\s+', ' ', text)
+    tokens = word_tokenize(text)
+    tagged = pos_tag(tokens)
+    lemmatized = [lemmatizer.lemmatize(w, get_wordnet_pos(pos)) for w, pos in tagged]
+    return ' '.join(lemmatized)
+
+# Данные
+data = pd.DataFrame({
+    'description': [
+        'Patient has a sore throat and mild fever',
+        'Severe headache and sensitivity to light!',
+        'Cough, shortness of breath, and chest pain',
+        'Fever, vomiting, and diarrhea.',
+        'Rash on arms and joint pain.',
+        'Pain while urinating and frequent urination',
+        'Nasal congestion and sneezing',
+        'Intense lower back pain and fatigue'
+    ],
+    'diagnosis': [
+        'Cold',
+        'Migraine',
+        'Pneumonia',
+        'Food Poisoning',
+        'Dengue',
+        'UTI',
+        'Cold',
+        'Kidney Stone'
+    ]
+})
+
+# Применяем препроцессинг
+data['cleaned'] = data['description'].apply(preprocess_text)
+
+# TF-IDF + стоп-слова
+tfidf = TfidfVectorizer(stop_words='english')
+X = tfidf.fit_transform(data['cleaned'])
+
+# Целевая переменная
+le = LabelEncoder()
+y = le.fit_transform(data['diagnosis'])
+
+# Модели
+xgb = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+logreg = LogisticRegression(max_iter=1000)
+
+# Ансамбль
+ensemble = VotingClassifier(
+    estimators=[('xgb', xgb), ('lr', logreg)],
+    voting='soft'
+)
+
+# Кросс-валидация
+cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=42)
+y_pred = cross_val_predict(ensemble, X, y, cv=cv, method='predict')
+
+# Метрики
+print(classification_report(y, y_pred, target_names=le.classes_))
